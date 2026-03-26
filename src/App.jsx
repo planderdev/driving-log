@@ -4,742 +4,499 @@ import * as XLSX from "xlsx";
 const SUPABASE_URL = "https://zpdmkejxwcysbfahudkw.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpwZG1rZWp4d2N5c2JmYWh1ZGt3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1MjExNzEsImV4cCI6MjA5MDA5NzE3MX0.hPy39hHUMFXom-aBfexB-N0VO8o_TQKKpanEfWw_bxQ";
 const VEHICLE_ID = "c7f656ef-fcd6-4ea5-8a59-deba47fe369a";
+const H = { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json", Prefer: "return=representation" };
+async function sb(p, o = {}) { const r = await fetch(`${SUPABASE_URL}/rest/v1/${p}`, { headers: { ...H, ...(o.headers||{}) }, ...o }); if (!r.ok) throw new Error(r.status); const t = await r.text(); return t ? JSON.parse(t) : []; }
 
-const headers = { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json", Prefer: "return=representation" };
-async function sb(path, opts = {}) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: { ...headers, ...(opts.headers || {}) }, ...opts });
-  if (!res.ok) throw new Error(`API Error: ${res.status}`);
-  const t = await res.text();
-  return t ? JSON.parse(t) : [];
-}
+const PURP = [{ id:"business",label:"업무",icon:"B" },{ id:"commute",label:"출퇴근",icon:"C" },{ id:"personal",label:"개인",icon:"P" },{ id:"other",label:"기타",icon:"E" }];
+const FUEL = [{ id:"gasoline",label:"휘발유" },{ id:"diesel",label:"경유" },{ id:"lpg",label:"LPG" },{ id:"electric",label:"전기" },{ id:"hydrogen",label:"수소" }];
+const fD = d => { const t=new Date(d),w=["일","월","화","수","목","금","토"]; return `${t.getFullYear()}.${String(t.getMonth()+1).padStart(2,"0")}.${String(t.getDate()).padStart(2,"0")} (${w[t.getDay()]})`; };
+const fN = n => n==null||n===""?"-":Number(n).toLocaleString();
+const fK = n => n==null?"0.0":Number(n).toFixed(1);
+const td = () => new Date().toISOString().split("T")[0];
+const mo = d => d.substring(0,7);
+const fDu = s => { const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60; return h>0?`${h}h ${String(m).padStart(2,"0")}m`:m>0?`${m}m ${String(sec).padStart(2,"0")}s`:`${sec}s`; };
+const hav = (a,b,c,d) => { const R=6371,dL=((c-a)*Math.PI)/180,dN=((d-b)*Math.PI)/180,x=Math.sin(dL/2)**2+Math.cos(a*Math.PI/180)*Math.cos(c*Math.PI/180)*Math.sin(dN/2)**2; return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x)); };
+const dKr = d => { const t=new Date(d),w=["일","월","화","수","목","금","토"]; return `${t.getFullYear()}.${String(t.getMonth()+1).padStart(2,"0")}.${String(t.getDate()).padStart(2,"0")}(${w[t.getDay()]})`; };
 
-const PURPOSE_OPTIONS = [
-  { id: "business", label: "업무", icon: "💼" },
-  { id: "commute", label: "출퇴근", icon: "🏢" },
-  { id: "personal", label: "개인", icon: "🏠" },
-  { id: "other", label: "기타", icon: "📌" },
-];
-const FUEL_TYPE_OPTIONS = [
-  { id: "gasoline", label: "휘발유" }, { id: "diesel", label: "경유" },
-  { id: "lpg", label: "LPG" }, { id: "electric", label: "전기충전" }, { id: "hydrogen", label: "수소" },
-];
-
-function formatDate(d) {
-  const dt = new Date(d); const w = ["일","월","화","수","목","금","토"];
-  return `${dt.getFullYear()}.${String(dt.getMonth()+1).padStart(2,"0")}.${String(dt.getDate()).padStart(2,"0")} (${w[dt.getDay()]})`;
-}
-function fmtNum(n) { return n == null || n === "" ? "-" : Number(n).toLocaleString(); }
-function fmtKm(n) { return n == null ? "0.0" : Number(n).toFixed(1); }
-function today() { return new Date().toISOString().split("T")[0]; }
-function monthOf(d) { return d.substring(0, 7); }
-function fmtDur(s) {
-  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
-  if (h>0) return `${h}시간 ${String(m).padStart(2,"0")}분`;
-  if (m>0) return `${m}분 ${String(sec).padStart(2,"0")}초`;
-  return `${sec}초`;
-}
-function haversine(lat1,lon1,lat2,lon2) {
-  const R=6371,dLat=((lat2-lat1)*Math.PI)/180,dLon=((lon2-lon1)*Math.PI)/180;
-  const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
-  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
-}
-function dateToKr(d) {
-  const dt = new Date(d); const w = ["일","월","화","수","목","금","토"];
-  return `${dt.getFullYear()}.${String(dt.getMonth()+1).padStart(2,"0")}.${String(dt.getDate()).padStart(2,"0")}(${w[dt.getDay()]})`;
-}
-
-// =================== EXCEL EXPORT ===================
-function exportToExcel(vehicle, drivingRecs, fuelRecs, selectedMonth) {
+function exportExcel(v, dr, fr, sm) {
   const wb = XLSX.utils.book_new();
-
-  // Filter by month
-  const recs = drivingRecs
-    .filter(r => monthOf(r.drive_date) === selectedMonth)
-    .sort((a, b) => new Date(a.drive_date) - new Date(b.drive_date));
-
-  const yearMonth = selectedMonth.replace("-", ".");
-  const fy_start = vehicle?.fiscal_year_start || "2025-01-01";
-  const fy_end = vehicle?.fiscal_year_end || "2025-12-31";
-
-  // Build data array matching official format
+  const recs = dr.filter(r=>mo(r.drive_date)===sm).sort((a,b)=>new Date(a.drive_date)-new Date(b.drive_date));
   const data = [];
-
-  // Row 1: Title
   data.push(["【업무용승용차 운행기록부에 관한 별지 서식】 (2016. 4. 1. 제정)"]);
-  // Row 2: Fiscal year + title + company
-  data.push(["사업연도", "", "", "", "", "", "", fy_start, "", "", "", "", "", "", "", "업무용승용차 운행기록부", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "법인명", "", "", "", "", "", vehicle?.company_name || ""]);
-  // Row 3: ~
-  data.push(["", "", "", "", "", "", "", "～", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]);
-  // Row 4: business number
-  data.push(["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "사업자등록번호", "", "", "", "", "", vehicle?.business_number || ""]);
-  // Row 5: fiscal year end
-  data.push(["", "", "", "", "", "", "", fy_end, "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]);
-  // Row 6: blank
+  data.push(["사업연도","","","","","","",v?.fiscal_year_start||"2025-01-01","","","","","","","","업무용승용차 운행기록부","","","","","","","","","","","","","","","","","","","","","법인명","","","","","",v?.company_name||""]);
+  data.push(["","","","","","","","～"]);
+  data.push(["","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","사업자등록번호","","","","","",v?.business_number||""]);
+  data.push(["","","","","","","",v?.fiscal_year_end||"2025-12-31"]);
+  data.push([]); data.push(["1. 기본정보"]);
+  data.push(["①차 종","","","","","","","","","","②자동차등록번호"]);
+  data.push([v?.vehicle_type||"","","","","","","","","","",v?.registration_number||""]);
+  data.push([]); data.push(["2. 업무용 사용비율 계산"]);
+  data.push(["③사용일자(요일)","","","","","④사용자","","","","","","","","운 행 내 역","","","","","","","","","","","","⑦주행거리(㎞)","","","","","","업무용 사용거리(㎞)","","","","","","","","","","","⑩비 고"]);
+  data.push(["","","","","","부서","","","","성명","","","","⑤주행 전\n계기판의 거리(㎞)","","","","","","⑥주행 후\n계기판의 거리(㎞)","","","","","","","","","","","","⑧출ㆍ퇴근용(㎞)","","","","","","⑨일반 업무용(㎞)","","","","",""]);
   data.push([]);
-  // Row 7: 1. 기본정보
-  data.push(["1. 기본정보"]);
-  // Row 8: headers
-  data.push(["①차 종", "", "", "", "", "", "", "", "", "", "②자동차등록번호"]);
-  // Row 9: vehicle info
-  data.push([vehicle?.vehicle_type || "", "", "", "", "", "", "", "", "", "", vehicle?.registration_number || ""]);
-  // Row 10: blank
-  data.push([]);
-  // Row 11: 2. 업무용 사용비율 계산
-  data.push(["2. 업무용 사용비율 계산"]);
-
-  // Row 12: Main header row
-  data.push([
-    "③사용일자(요일)", "", "", "", "",
-    "④사용자", "",
-    "", "", "",
-    "", "", "",
-    "운 행 내 역", "",
-    "", "", "", "",
-    "", "", "", "", "",
-    "",
-    "⑦주행거리(㎞)", "", "", "", "", "",
-    "업무용 사용거리(㎞)", "", "", "", "",
-    "", "", "", "", "", "",
-    "⑩비 고"
-  ]);
-
-  // Row 13: Sub-header
-  data.push([
-    "", "", "", "", "",
-    "부서", "",
-    "", "", "성명",
-    "", "", "",
-    "⑤주행 전\n계기판의 거리(㎞)", "",
-    "", "", "", "",
-    "⑥주행 후\n계기판의 거리(㎞)", "", "", "", "",
-    "",
-    "", "", "", "", "", "",
-    "⑧출ㆍ퇴근용(㎞)", "", "", "", "",
-    "", "⑨일반 업무용(㎞)", "", "", "", "",
-    "",
-    ""
-  ]);
-
-  // Row 14: blank sub header
-  data.push([]);
-
-  // Data rows
-  let totalDistance = 0;
-  let totalCommute = 0;
-  let totalBusiness = 0;
-
-  recs.forEach(r => {
-    const dist = r.distance || (r.end_odometer - r.start_odometer);
-    totalDistance += dist;
-    totalCommute += (r.commute_distance || 0);
-    totalBusiness += (r.business_distance || 0);
-
-    const row = new Array(44).fill("");
-    row[0] = dateToKr(r.drive_date);     // 사용일자
-    row[5] = r.driver_department || "";   // 부서
-    row[9] = r.driver_name || "";         // 성명
-    row[13] = r.start_odometer;           // 주행 전 거리
-    row[19] = r.end_odometer;             // 주행 후 거리
-    row[25] = dist;                       // 주행거리
-    row[31] = r.commute_distance || 0;    // 출퇴근용
-    row[37] = r.business_distance || 0;   // 일반 업무용
-    row[43] = r.memo || "";               // 비고
-    if (r.gps_tracked) row[43] = `[GPS] ${r.memo || ""}`;
-    // 출발지/목적지 info
-    if (r.origin || r.destination) {
-      row[43] = `${r.origin || ""} → ${r.destination || ""} ${row[43]}`.trim();
-    }
-    data.push(row);
-  });
-
-  // Fill empty rows to match template (at least ~30 rows of data area)
-  const minRows = 30;
-  for (let i = recs.length; i < minRows; i++) {
-    const row = new Array(44).fill("");
-    row[25] = 0;
-    data.push(row);
-  }
-
-  // Summary row
-  const sumRow = new Array(44).fill("");
-  sumRow[13] = `⑪사업연도 총주행 거리(㎞)`;
-  sumRow[31] = `⑫사업연도 업무용 사용거리(㎞)`;
-  sumRow[43] = "⑬업무사용비율\n(⑫/⑪)";
-  data.push(sumRow);
-
-  const totalRow = new Array(44).fill("");
-  totalRow[13] = totalDistance;
-  totalRow[31] = totalCommute + totalBusiness;
-  totalRow[43] = totalDistance > 0 ? ((totalCommute + totalBusiness) / totalDistance).toFixed(4) : 0;
-  data.push(totalRow);
-
-  // Create worksheet
-  const ws = XLSX.utils.aoa_to_sheet(data);
-
-  // Column widths
-  ws["!cols"] = [
-    { wch: 16 }, // A - 날짜
-    { wch: 3 }, { wch: 3 }, { wch: 3 }, { wch: 3 },
-    { wch: 8 },  // F - 부서
-    { wch: 3 },
-    { wch: 6 }, { wch: 3 },
-    { wch: 8 },  // J - 성명
-    { wch: 3 }, { wch: 3 }, { wch: 3 },
-    { wch: 12 }, // N - 주행전
-    { wch: 3 }, { wch: 3 }, { wch: 3 }, { wch: 3 }, { wch: 3 },
-    { wch: 12 }, // T - 주행후
-    { wch: 3 }, { wch: 3 }, { wch: 3 }, { wch: 3 },
-    { wch: 3 },
-    { wch: 10 }, // Z - 주행거리
-    { wch: 3 }, { wch: 3 }, { wch: 3 }, { wch: 3 }, { wch: 3 },
-    { wch: 10 }, // AF - 출퇴근
-    { wch: 3 }, { wch: 3 }, { wch: 3 }, { wch: 3 },
-    { wch: 3 },
-    { wch: 10 }, // AL - 업무용
-    { wch: 3 }, { wch: 3 }, { wch: 3 }, { wch: 3 },
-    { wch: 3 },
-    { wch: 20 }, // AR - 비고
-  ];
-
-  XLSX.utils.book_append_sheet(wb, ws, "운행기록부");
-
-  // Also add fuel records sheet if any
-  const fRecs = fuelRecs
-    .filter(r => monthOf(r.fuel_date) === selectedMonth)
-    .sort((a, b) => new Date(a.fuel_date) - new Date(b.fuel_date));
-
-  if (fRecs.length > 0) {
-    const fuelData = [
-      ["주유/충전 기록부", "", "", "", "", vehicle?.vehicle_type || "", vehicle?.registration_number || ""],
-      [],
-      ["날짜", "주행거리(km)", "연료종류", "주유량(L/kWh)", "금액(원)", "단가(원)", "메모"],
-    ];
-    fRecs.forEach(r => {
-      const unitPrice = r.amount > 0 ? Math.round(Number(r.cost) / Number(r.amount)) : 0;
-      const ftLabel = FUEL_TYPE_OPTIONS.find(f => f.id === r.fuel_type)?.label || "";
-      fuelData.push([dateToKr(r.fuel_date), r.odometer, ftLabel, Number(r.amount), Number(r.cost), unitPrice, r.memo || ""]);
-    });
-    // Totals
-    const totalAmount = fRecs.reduce((s, r) => s + Number(r.amount || 0), 0);
-    const totalCost = fRecs.reduce((s, r) => s + Number(r.cost || 0), 0);
-    fuelData.push([]);
-    fuelData.push(["합계", "", "", totalAmount, totalCost, totalCost > 0 && totalAmount > 0 ? Math.round(totalCost / totalAmount) : 0, ""]);
-
-    const ws2 = XLSX.utils.aoa_to_sheet(fuelData);
-    ws2["!cols"] = [{ wch: 18 }, { wch: 14 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 10 }, { wch: 20 }];
-    XLSX.utils.book_append_sheet(wb, ws2, "주유기록");
-  }
-
-  // Download
-  const fileName = `운행기록부_${vehicle?.company_name || ""}_(${yearMonth}).xlsx`;
-  XLSX.writeFile(wb, fileName);
+  let tD=0,tC=0,tB=0;
+  recs.forEach(r=>{const dist=r.distance||(r.end_odometer-r.start_odometer);tD+=dist;tC+=(r.commute_distance||0);tB+=(r.business_distance||0);const row=new Array(44).fill("");row[0]=dKr(r.drive_date);row[5]=r.driver_department||"";row[9]=r.driver_name||"";row[13]=r.start_odometer;row[19]=r.end_odometer;row[25]=dist;row[31]=r.commute_distance||0;row[37]=r.business_distance||0;row[43]=`${r.origin||""} → ${r.destination||""} ${r.gps_tracked?"[GPS] ":""}${r.memo||""}`.trim();data.push(row);});
+  for(let i=recs.length;i<30;i++){const row=new Array(44).fill("");row[25]=0;data.push(row);}
+  const sr=new Array(44).fill("");sr[13]="⑪사업연도 총주행 거리(㎞)";sr[31]="⑫사업연도 업무용 사용거리(㎞)";sr[43]="⑬업무사용비율\n(⑫/⑪)";data.push(sr);
+  const tr=new Array(44).fill("");tr[13]=tD;tr[31]=tC+tB;tr[43]=tD>0?((tC+tB)/tD).toFixed(4):0;data.push(tr);
+  const ws=XLSX.utils.aoa_to_sheet(data);XLSX.utils.book_append_sheet(wb,ws,"운행기록부");
+  const fRecs=fr.filter(r=>mo(r.fuel_date)===sm).sort((a,b)=>new Date(a.fuel_date)-new Date(b.fuel_date));
+  if(fRecs.length>0){const fd=[["주유/충전 기록부","","","","",v?.vehicle_type||"",v?.registration_number||""],[],["날짜","주행거리(km)","연료종류","주유량","금액(원)","단가","메모"]];fRecs.forEach(r=>{fd.push([dKr(r.fuel_date),r.odometer,FUEL.find(f=>f.id===r.fuel_type)?.label||"",Number(r.amount),Number(r.cost),r.amount>0?Math.round(Number(r.cost)/Number(r.amount)):0,r.memo||""]);});fd.push([]);const ta=fRecs.reduce((s,r)=>s+Number(r.amount||0),0),tc=fRecs.reduce((s,r)=>s+Number(r.cost||0),0);fd.push(["합계","","",ta,tc,ta>0?Math.round(tc/ta):0,""]);const ws2=XLSX.utils.aoa_to_sheet(fd);XLSX.utils.book_append_sheet(wb,ws2,"주유기록");}
+  XLSX.writeFile(wb,`운행기록부_${v?.company_name||""}_(${sm.replace("-",".")}).xlsx`);
 }
 
-// =================== MAIN COMPONENT ===================
-export default function DrivingLog() {
-  const [vehicle, setVehicle] = useState(null);
-  const [drivingRecs, setDrivingRecs] = useState([]);
-  const [fuelRecs, setFuelRecs] = useState([]);
+export default function App() {
+  const [veh, setVeh] = useState(null);
+  const [drv, setDrv] = useState([]);
+  const [fue, setFue] = useState([]);
   const [view, setView] = useState("home");
-  const [editRec, setEditRec] = useState(null);
+  const [rec, setRec] = useState(null);
   const [loaded, setLoaded] = useState(false);
-  const [filterMonth, setFilterMonth] = useState(monthOf(today()));
-  const [detailRec, setDetailRec] = useState(null);
-  const [detailType, setDetailType] = useState("driving");
+  const [fm, setFm] = useState(mo(td()));
+  const [det, setDet] = useState(null);
+  const [dType, setDType] = useState("driving");
   const [toast, setToast] = useState(null);
-  const [syncing, setSyncing] = useState(false);
-
-  // GPS
+  const [sync, setSync] = useState(false);
   const [tracking, setTracking] = useState(false);
-  const [gpsDistance, setGpsDistance] = useState(0);
-  const [gpsSpeed, setGpsSpeed] = useState(0);
-  const [gpsDuration, setGpsDuration] = useState(0);
-  const [gpsPoints, setGpsPoints] = useState([]);
-  const [gpsError, setGpsError] = useState(null);
-  const watchRef = useRef(null); const lastPosRef = useRef(null); const startRef = useRef(null);
-  const timerRef = useRef(null); const distRef = useRef(0); const ptsRef = useRef([]); const durRef = useRef(0);
+  const [gDist, setGDist] = useState(0);
+  const [gSpd, setGSpd] = useState(0);
+  const [gDur, setGDur] = useState(0);
+  const [gPts, setGPts] = useState([]);
+  const [gErr, setGErr] = useState(null);
+  const wRef=useRef(null),lpRef=useRef(null),stRef=useRef(null),tmRef=useRef(null),dstRef=useRef(0),ptRef=useRef([]),duRef=useRef(0);
 
-  const showToast = (m) => { setToast(m); setTimeout(() => setToast(null), 2500); };
+  const stToast = m => { setToast(m); setTimeout(()=>setToast(null),2500); };
+  const load = useCallback(async()=>{try{const[v,d,f]=await Promise.all([sb(`vehicles?id=eq.${VEHICLE_ID}&select=*`),sb(`driving_records?vehicle_id=eq.${VEHICLE_ID}&select=*&order=drive_date.desc,created_at.desc`),sb(`fuel_records?vehicle_id=eq.${VEHICLE_ID}&select=*&order=fuel_date.desc,created_at.desc`)]);if(v.length)setVeh(v[0]);setDrv(d);setFue(f);}catch{stToast("연결 실패");}setLoaded(true);},[]);
+  useEffect(()=>{load();},[load]);
 
-  const loadData = useCallback(async () => {
-    try {
-      const [v, dr, fr] = await Promise.all([
-        sb(`vehicles?id=eq.${VEHICLE_ID}&select=*`),
-        sb(`driving_records?vehicle_id=eq.${VEHICLE_ID}&select=*&order=drive_date.desc,created_at.desc`),
-        sb(`fuel_records?vehicle_id=eq.${VEHICLE_ID}&select=*&order=fuel_date.desc,created_at.desc`),
-      ]);
-      if (v.length > 0) setVehicle(v[0]);
-      setDrivingRecs(dr); setFuelRecs(fr);
-    } catch (e) { showToast("데이터 로드 실패"); }
-    setLoaded(true);
-  }, []);
+  const odo = veh?.current_odometer||0;
+  const all = [...drv.map(r=>({...r,_t:"driving",_d:r.drive_date,_c:r.created_at})),...fue.map(r=>({...r,_t:"fuel",_d:r.fuel_date,_c:r.created_at}))].sort((a,b)=>new Date(b._d)-new Date(a._d)||new Date(b._c)-new Date(a._c));
+  const updOdo = async o => { try{await sb(`vehicles?id=eq.${VEHICLE_ID}`,{method:"PATCH",body:JSON.stringify({current_odometer:o})});setVeh(p=>({...p,current_odometer:o}));}catch{} };
 
-  useEffect(() => { loadData(); }, [loadData]);
-
-  const lastOdo = vehicle?.current_odometer || 0;
-  const allRecords = [
-    ...drivingRecs.map(r => ({ ...r, _type: "driving", _date: r.drive_date, _st: r.created_at })),
-    ...fuelRecs.map(r => ({ ...r, _type: "fuel", _date: r.fuel_date, _st: r.created_at })),
-  ].sort((a, b) => new Date(b._date) - new Date(a._date) || new Date(b._st) - new Date(a._st));
-
-  const updateOdo = async (odo) => {
-    try { await sb(`vehicles?id=eq.${VEHICLE_ID}`, { method: "PATCH", body: JSON.stringify({ current_odometer: odo }) }); setVehicle(p => ({ ...p, current_odometer: odo })); } catch {}
+  const startGPS = () => {
+    if(!navigator.geolocation){setGErr("GPS 미지원");return;}
+    setGErr(null);setGDist(0);setGSpd(0);setGDur(0);setGPts([]);dstRef.current=0;ptRef.current=[];lpRef.current=null;stRef.current=Date.now();duRef.current=0;
+    const w=navigator.geolocation.watchPosition(p=>{const{latitude:la,longitude:lo,speed:sp,accuracy:ac}=p.coords;if(ac>50)return;ptRef.current=[...ptRef.current,{la,lo}];setGPts([...ptRef.current]);if(lpRef.current){const d=hav(lpRef.current.la,lpRef.current.lo,la,lo);if(d>0.005){dstRef.current+=d;setGDist(dstRef.current);lpRef.current={la,lo};}}else lpRef.current={la,lo};if(sp!=null&&sp>=0)setGSpd(sp*3.6);},e=>setGErr(e.code===1?"위치 권한을 허용해주세요":"GPS 신호 없음"),{enableHighAccuracy:true,maximumAge:3000,timeout:10000});
+    wRef.current=w;setTracking(true);setView("tracking");
+    tmRef.current=setInterval(()=>{duRef.current=Math.floor((Date.now()-stRef.current)/1000);setGDur(duRef.current);},1000);
   };
-
-  // GPS
-  const startTracking = () => {
-    if (!navigator.geolocation) { setGpsError("GPS 미지원"); return; }
-    setGpsError(null); setGpsDistance(0); setGpsSpeed(0); setGpsDuration(0); setGpsPoints([]);
-    distRef.current=0; ptsRef.current=[]; lastPosRef.current=null; startRef.current=Date.now(); durRef.current=0;
-    const wId = navigator.geolocation.watchPosition(
-      (pos) => {
-        const {latitude:lat,longitude:lng,speed,accuracy} = pos.coords;
-        if (accuracy>50) return;
-        ptsRef.current=[...ptsRef.current,{lat,lng,time:Date.now()}]; setGpsPoints([...ptsRef.current]);
-        if (lastPosRef.current) { const d=haversine(lastPosRef.current.lat,lastPosRef.current.lng,lat,lng); if(d>0.005){distRef.current+=d;setGpsDistance(distRef.current);lastPosRef.current={lat,lng};} } else { lastPosRef.current={lat,lng}; }
-        if (speed!=null&&speed>=0) setGpsSpeed(speed*3.6);
-      },
-      (err) => setGpsError(err.code===1?"위치 권한을 허용해주세요.":"GPS 신호 없음"),
-      {enableHighAccuracy:true,maximumAge:3000,timeout:10000}
-    );
-    watchRef.current=wId; setTracking(true); setView("tracking");
-    timerRef.current=setInterval(()=>{durRef.current=Math.floor((Date.now()-startRef.current)/1000);setGpsDuration(durRef.current);},1000);
-  };
-  const stopTracking = () => {
-    if(watchRef.current!=null){navigator.geolocation.clearWatch(watchRef.current);watchRef.current=null;}
-    if(timerRef.current){clearInterval(timerRef.current);timerRef.current=null;}
-    setTracking(false);
-    const km=Math.round(distRef.current*10)/10;
-    setEditRec({_mode:"gps",drive_date:today(),start_odometer:lastOdo,end_odometer:Math.round(lastOdo+km),origin:"",destination:"",purpose:"business",driver_department:"",driver_name:"",memo:"",gps_tracked:true,gps_distance:km,gps_duration:durRef.current,commute_distance:0,business_distance:Math.round(km)});
+  const stopGPS = () => {
+    if(wRef.current!=null){navigator.geolocation.clearWatch(wRef.current);wRef.current=null;}
+    if(tmRef.current){clearInterval(tmRef.current);tmRef.current=null;}
+    setTracking(false);const km=Math.round(dstRef.current*10)/10;
+    setRec({_m:"gps",drive_date:td(),start_odometer:odo,end_odometer:Math.round(odo+km),origin:"",destination:"",purpose:"business",driver_department:"",driver_name:"",memo:"",gps_tracked:true,gps_distance:km,gps_duration:duRef.current,commute_distance:0,business_distance:Math.round(km)});
     setView("gps-save");
   };
-  useEffect(()=>()=>{if(watchRef.current!=null)navigator.geolocation.clearWatch(watchRef.current);if(timerRef.current)clearInterval(timerRef.current);},[]);
+  useEffect(()=>()=>{if(wRef.current!=null)navigator.geolocation.clearWatch(wRef.current);if(tmRef.current)clearInterval(tmRef.current);},[]);
 
-  // Save
-  const saveDriving = async (rec, isEdit) => {
-    const {_mode,...data}=rec;
-    if(!data.end_odometer||Number(data.end_odometer)<=Number(data.start_odometer)){showToast("도착 주행거리를 확인해주세요");return;}
-    setSyncing(true);
-    try {
-      const dist=Number(data.end_odometer)-Number(data.start_odometer);
-      if(data.purpose==="commute"){data.commute_distance=dist;data.business_distance=0;}
-      else if(data.purpose==="business"){data.business_distance=dist;data.commute_distance=0;}
-      else{data.commute_distance=0;data.business_distance=0;}
-      data.vehicle_id=VEHICLE_ID;
-      if(isEdit&&data.id){const{id,distance,created_at,updated_at,...upd}=data;await sb(`driving_records?id=eq.${id}`,{method:"PATCH",body:JSON.stringify(upd)});}
-      else{const{id,distance,created_at,updated_at,...ins}=data;await sb("driving_records",{method:"POST",body:JSON.stringify(ins)});}
-      await updateOdo(Number(data.end_odometer)); await loadData();
-      showToast("운행 기록 저장 완료 ✓");
-    } catch(e){showToast("저장 실패");}
-    setSyncing(false);setView("home");setEditRec(null);setGpsDistance(0);setGpsDuration(0);setGpsSpeed(0);setGpsPoints([]);
-  };
-  const saveFuel = async (rec, isEdit) => {
-    if(!rec.amount||!rec.cost){showToast("주유량과 금액을 입력해주세요");return;}
-    setSyncing(true);
-    try {
-      rec.vehicle_id=VEHICLE_ID;
-      if(isEdit&&rec.id){const{id,created_at,updated_at,...upd}=rec;await sb(`fuel_records?id=eq.${id}`,{method:"PATCH",body:JSON.stringify(upd)});}
-      else{const{id,created_at,updated_at,...ins}=rec;await sb("fuel_records",{method:"POST",body:JSON.stringify(ins)});}
-      await loadData(); showToast("주유 기록 저장 완료 ✓");
-    } catch{showToast("저장 실패");}
-    setSyncing(false);setView("home");setEditRec(null);
-  };
-  const deleteRec = async (id, type) => {
-    setSyncing(true);
-    try { await sb(`${type==="driving"?"driving_records":"fuel_records"}?id=eq.${id}`,{method:"DELETE"}); await loadData(); showToast("삭제 완료"); }
-    catch{showToast("삭제 실패");}
-    setSyncing(false);setView("history");setDetailRec(null);
-  };
+  const saveD = async(r,edit)=>{const{_m,...d}=r;if(!d.end_odometer||+d.end_odometer<=+d.start_odometer){stToast("도착 주행거리 확인");return;}setSync(true);try{const dist=+d.end_odometer-+d.start_odometer;d.commute_distance=d.purpose==="commute"?dist:0;d.business_distance=d.purpose==="business"?dist:0;d.vehicle_id=VEHICLE_ID;if(edit&&d.id){const{id,distance,created_at,updated_at,...u}=d;await sb(`driving_records?id=eq.${id}`,{method:"PATCH",body:JSON.stringify(u)});}else{const{id,distance,created_at,updated_at,...u}=d;await sb("driving_records",{method:"POST",body:JSON.stringify(u)});}await updOdo(+d.end_odometer);await load();stToast("저장 완료");}catch{stToast("저장 실패");}setSync(false);setView("home");setRec(null);setGDist(0);setGDur(0);setGSpd(0);setGPts([]);};
+  const saveF = async(r,edit)=>{if(!r.amount||!r.cost){stToast("주유량과 금액 입력");return;}setSync(true);try{r.vehicle_id=VEHICLE_ID;if(edit&&r.id){const{id,created_at,updated_at,...u}=r;await sb(`fuel_records?id=eq.${id}`,{method:"PATCH",body:JSON.stringify(u)});}else{const{id,created_at,updated_at,...u}=r;await sb("fuel_records",{method:"POST",body:JSON.stringify(u)});}await load();stToast("저장 완료");}catch{stToast("저장 실패");}setSync(false);setView("home");setRec(null);};
+  const delR = async(id,t)=>{setSync(true);try{await sb(`${t==="driving"?"driving_records":"fuel_records"}?id=eq.${id}`,{method:"DELETE"});await load();stToast("삭제 완료");}catch{stToast("삭제 실패");}setSync(false);setView("history");setDet(null);};
 
-  const goNewDriving = () => { setEditRec({_mode:"manual",drive_date:today(),start_odometer:lastOdo,end_odometer:"",origin:"",destination:"",purpose:"business",driver_department:"",driver_name:"",memo:"",gps_tracked:false,commute_distance:0,business_distance:0}); setView("new"); };
-  const goNewFuel = () => { setEditRec({fuel_date:today(),odometer:lastOdo,fuel_type:"electric",amount:"",cost:"",memo:""}); setView("fuel"); };
+  const mR=all.filter(r=>mo(r._d)===fm),mD=mR.filter(r=>r._t==="driving"),mF=mR.filter(r=>r._t==="fuel");
+  const tDist=mD.reduce((s,r)=>s+(r.distance||0),0),tFuel=mF.reduce((s,r)=>s+Number(r.cost||0),0);
+  const bDist=mD.filter(r=>r.purpose==="business"||r.purpose==="commute").reduce((s,r)=>s+(r.distance||0),0);
+  const aM=[...new Set(all.map(r=>mo(r._d)))].sort().reverse();if(!aM.includes(fm))aM.unshift(fm);
 
-  // Handle export
-  const handleExport = () => {
-    try {
-      exportToExcel(vehicle, drivingRecs, fuelRecs, filterMonth);
-      showToast("엑셀 파일이 다운로드됩니다 📥");
-    } catch (e) {
-      console.error(e);
-      showToast("내보내기 실패");
-    }
-  };
-
-  // Stats
-  const monthRecs = allRecords.filter(r => monthOf(r._date) === filterMonth);
-  const mDriving = monthRecs.filter(r => r._type==="driving");
-  const mFuel = monthRecs.filter(r => r._type==="fuel");
-  const totDist = mDriving.reduce((s,r)=>s+(r.distance||0),0);
-  const totFuelCost = mFuel.reduce((s,r)=>s+Number(r.cost||0),0);
-  const bizDist = mDriving.filter(r=>r.purpose==="business"||r.purpose==="commute").reduce((s,r)=>s+(r.distance||0),0);
-  const persDist = totDist-bizDist;
-  const allMonths = [...new Set(allRecords.map(r=>monthOf(r._date)))].sort().reverse();
-  if (!allMonths.includes(filterMonth)) allMonths.unshift(filterMonth);
-
-  if (!loaded) return (
-    <div style={S.loadWrap}><div style={S.spinner}/><p style={{color:"#8896A6",marginTop:16}}>서버에서 데이터를 불러오는 중...</p>
-    <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style></div>
-  );
+  if(!loaded) return (<div style={T.loadW}><div style={T.ldRing}/><style>{`@keyframes tspin{to{transform:rotate(360deg)}}@keyframes tpulse{0%,100%{opacity:1}50%{opacity:.3}}@keyframes tdash{0%{stroke-dashoffset:200}100%{stroke-dashoffset:0}}`}</style></div>);
 
   return (
-    <div style={S.app}>
+    <div style={T.app}>
       <style>{`
-        @keyframes spin{to{transform:rotate(360deg)}}
-        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-        @keyframes ripple{0%{transform:scale(1);opacity:.6}100%{transform:scale(2.5);opacity:0}}
-        input:focus,textarea:focus{border-color:rgba(59,130,246,0.5)!important;outline:none}
+        @keyframes tspin{to{transform:rotate(360deg)}}
+        @keyframes tpulse{0%,100%{opacity:1}50%{opacity:.3}}
+        @keyframes tripple{0%{box-shadow:0 0 0 0 rgba(232,33,51,.4)}70%{box-shadow:0 0 0 20px rgba(232,33,51,0)}100%{box-shadow:0 0 0 0 rgba(232,33,51,0)}}
+        @keyframes tglow{0%,100%{opacity:.6}50%{opacity:1}}
+        input:focus,textarea:focus{border-color:rgba(232,33,51,.5)!important;outline:none}
+        input,textarea{font-family:inherit}
+        ::-webkit-scrollbar{display:none}
       `}</style>
-      {toast && <div style={S.toast}>{toast}</div>}
-      {syncing && <div style={S.syncBar}/>}
+      {toast&&<div style={T.toast}>{toast}</div>}
+      {sync&&<div style={T.syncLine}/>}
 
-      {/* HOME */}
-      {view === "home" && (
-        <div style={S.page}>
-          <header style={S.header}>
-            <div style={S.headerTop}>
-              <h1 style={S.logo}>🚗 운행일지</h1>
-              <div style={{display:"flex",gap:8}}>
-                <button style={S.iconBtn} onClick={loadData} title="새로고침">🔄</button>
-                <button style={S.iconBtn} onClick={() => setView("stats")}>📊</button>
-                <button style={S.iconBtn} onClick={() => setView("export")} title="내보내기">📥</button>
-              </div>
+      {/* ══════ HOME ══════ */}
+      {view==="home"&&<div style={T.pg}>
+        <header style={T.hdr}>
+          <div style={T.hdrRow}>
+            <div>
+              <div style={T.teslaLogo}>DRIVING LOG</div>
+              <div style={T.hdrSub}>{veh?.vehicle_type||""} · {veh?.registration_number||""}</div>
             </div>
-            <div style={S.odoCard}>
-              <div style={S.dbBadge}>🔗 Supabase 연결됨</div>
-              <div style={S.odoLabel}>현재 주행거리</div>
-              <div><span style={S.odoNum}>{fmtNum(lastOdo)}</span><span style={S.odoUnit}> km</span></div>
-              <div style={S.vehName}>{vehicle?.vehicle_type||"차량"} · {vehicle?.registration_number||""}</div>
-              <div style={S.compName}>{vehicle?.company_name||""}</div>
+            <div style={{display:"flex",gap:6}}>
+              <button style={T.hdrBtn} onClick={load}>↻</button>
+              <button style={T.hdrBtn} onClick={()=>setView("stats")}>⊞</button>
+              <button style={T.hdrBtn} onClick={()=>setView("export")}>↓</button>
             </div>
-          </header>
+          </div>
+        </header>
 
-          <button style={S.gpsBtn} onClick={startTracking}>
-            <div style={S.gpsBtnInner}><div style={S.gpsPulse}/><span style={{fontSize:24,zIndex:1}}>📍</span></div>
-            <div style={{flex:1}}><span style={S.gpsBtnLabel}>GPS 운행 시작</span><span style={S.gpsBtnSub}>실시간 주행거리 자동 측정</span></div>
-            <span style={{fontSize:14,color:"rgba(255,255,255,.5)"}}>▶</span>
+        {/* Hero odometer */}
+        <div style={T.hero}>
+          <svg viewBox="0 0 320 180" style={{width:"100%",maxWidth:320,margin:"0 auto",display:"block"}}>
+            {/* Car silhouette */}
+            <defs>
+              <linearGradient id="carG" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#333"/>
+                <stop offset="100%" stopColor="#111"/>
+              </linearGradient>
+              <filter id="glow"><feGaussianBlur stdDeviation="3" result="g"/><feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+            </defs>
+            {/* Ground line */}
+            <line x1="20" y1="130" x2="300" y2="130" stroke="#222" strokeWidth="1"/>
+            {/* Car body */}
+            <path d="M70,115 Q70,100 85,95 L120,80 Q130,75 140,75 L180,75 Q190,75 200,80 L235,95 Q250,100 250,115 Z" fill="url(#carG)" stroke="#333" strokeWidth="1"/>
+            {/* Windows */}
+            <path d="M125,83 L140,78 L180,78 L195,83 L190,95 L130,95 Z" fill="#1a1a1a" stroke="#444" strokeWidth="0.5"/>
+            {/* Wheels */}
+            <circle cx="105" cy="125" r="14" fill="#111" stroke="#444" strokeWidth="1.5"/>
+            <circle cx="105" cy="125" r="8" fill="#1a1a1a" stroke="#333" strokeWidth="1"/>
+            <circle cx="215" cy="125" r="14" fill="#111" stroke="#444" strokeWidth="1.5"/>
+            <circle cx="215" cy="125" r="8" fill="#1a1a1a" stroke="#333" strokeWidth="1"/>
+            {/* Headlights */}
+            <ellipse cx="248" cy="108" rx="5" ry="3" fill="#E82133" opacity="0.8" filter="url(#glow)"/>
+            <ellipse cx="72" cy="108" rx="5" ry="3" fill="rgba(255,255,255,0.6)" filter="url(#glow)"/>
+            {/* Odometer text */}
+            <text x="160" y="30" textAnchor="middle" fill="#555" fontSize="10" fontFamily="-apple-system,sans-serif" letterSpacing="3" fontWeight="300">ODOMETER</text>
+            <text x="160" y="60" textAnchor="middle" fill="#fff" fontSize="32" fontFamily="-apple-system,sans-serif" fontWeight="200" letterSpacing="1">{fN(odo)}</text>
+            <text x="195" y="60" textAnchor="start" fill="#555" fontSize="12" fontFamily="-apple-system,sans-serif" fontWeight="300" dx={String(odo).length * 6}>km</text>
+          </svg>
+          <div style={T.compBadge}>{veh?.company_name||""}</div>
+        </div>
+
+        {/* GPS Start */}
+        <button style={T.gpsStart} onClick={startGPS}>
+          <div style={T.gpsRing}><div style={T.gpsDot}/></div>
+          <div style={{flex:1}}>
+            <div style={T.gpsLabel}>운행 시작</div>
+            <div style={T.gpsSub}>GPS 실시간 추적</div>
+          </div>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#E82133" strokeWidth="2"><path d="M5 3l14 9-14 9V3z"/></svg>
+        </button>
+
+        {/* Action row */}
+        <div style={T.actRow}>
+          <button style={T.actCard} onClick={()=>{setRec({_m:"manual",drive_date:td(),start_odometer:odo,end_odometer:"",origin:"",destination:"",purpose:"business",driver_department:"",driver_name:"",memo:"",gps_tracked:false,commute_distance:0,business_distance:0});setView("new");}}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="1.5"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            <span style={T.actLabel}>수동 기록</span>
           </button>
-
-          <div style={S.quickActs}>
-            <button style={S.actBtn} onClick={goNewDriving}><span style={S.actIcon}>✏️</span><span style={S.actLabel}>수동 기록</span><span style={S.actSub}>직접 입력하기</span></button>
-            <button style={S.actBtn} onClick={goNewFuel}><span style={S.actIcon}>⛽</span><span style={S.actLabel}>주유 기록</span><span style={S.actSub}>주유/충전 기록</span></button>
-          </div>
-
-          <div style={S.secHead}><h2 style={S.secTitle}>최근 기록</h2><button style={S.linkBtn} onClick={() => setView("history")}>전체보기 →</button></div>
-          <div style={S.recList}>
-            {allRecords.length === 0 ? <div style={S.empty}><div style={{fontSize:40,marginBottom:12}}>📋</div><p style={{color:"#8896A6"}}>아직 기록이 없습니다</p></div>
-            : allRecords.slice(0, 5).map(r => <RecordCard key={r.id} r={r} onClick={() => {setDetailRec(r);setDetailType(r._type);setView("detail");}} />)}
-          </div>
-        </div>
-      )}
-
-      {/* EXPORT */}
-      {view === "export" && (
-        <div style={S.page}>
-          <header style={S.fHead}><button style={S.backBtn} onClick={() => setView("home")}>← 뒤로</button><h2 style={S.fTitle}>📥 엑셀 내보내기</h2></header>
-
-          <div style={S.exportCard}>
-            <div style={S.exportIcon}>📄</div>
-            <h3 style={S.exportTitle}>업무용승용차 운행기록부</h3>
-            <p style={S.exportDesc}>국세청 공식 양식에 맞춰 엑셀 파일로 내보냅니다</p>
-
-            <div style={S.exportInfo}>
-              <div style={S.exportInfoRow}><span style={S.exportInfoLabel}>법인명</span><span style={S.exportInfoVal}>{vehicle?.company_name || "-"}</span></div>
-              <div style={S.exportInfoRow}><span style={S.exportInfoLabel}>차량</span><span style={S.exportInfoVal}>{vehicle?.vehicle_type || "-"} ({vehicle?.registration_number || ""})</span></div>
-              <div style={S.exportInfoRow}><span style={S.exportInfoLabel}>사업자번호</span><span style={S.exportInfoVal}>{vehicle?.business_number || "-"}</span></div>
-            </div>
-          </div>
-
-          <div style={S.fCard}>
-            <FG label="내보낼 월 선택">
-              <MonthSel months={allMonths} cur={filterMonth} set={setFilterMonth} />
-            </FG>
-
-            <div style={S.exportPreview}>
-              <div style={S.exportPreviewRow}>
-                <span style={S.exportPreviewIcon}>🛣️</span>
-                <span style={S.exportPreviewLabel}>운행 기록</span>
-                <span style={S.exportPreviewVal}>{drivingRecs.filter(r=>monthOf(r.drive_date)===filterMonth).length}건</span>
-              </div>
-              <div style={S.exportPreviewRow}>
-                <span style={S.exportPreviewIcon}>⛽</span>
-                <span style={S.exportPreviewLabel}>주유 기록</span>
-                <span style={S.exportPreviewVal}>{fuelRecs.filter(r=>monthOf(r.fuel_date)===filterMonth).length}건</span>
-              </div>
-              <div style={S.exportPreviewRow}>
-                <span style={S.exportPreviewIcon}>📏</span>
-                <span style={S.exportPreviewLabel}>총 주행거리</span>
-                <span style={S.exportPreviewVal}>{fmtNum(totDist)} km</span>
-              </div>
-            </div>
-          </div>
-
-          <button style={S.exportBtn} onClick={handleExport}>
-            <span style={{fontSize:20}}>📥</span> 엑셀 파일 다운로드
+          <button style={T.actCard} onClick={()=>{setRec({fuel_date:td(),odometer:odo,fuel_type:"electric",amount:"",cost:"",memo:""});setView("fuel");}}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M12 18v-6M9 15h6"/></svg>
+            <span style={T.actLabel}>충전 기록</span>
           </button>
-
-          <p style={S.exportNote}>* 운행기록부 시트와 주유기록 시트가 포함됩니다<br/>* 국세청 업무용승용차 운행기록부 별지 서식 기준</p>
-        </div>
-      )}
-
-      {/* GPS TRACKING */}
-      {view === "tracking" && (
-        <div style={S.page}>
-          <div style={S.trackPage}>
-            <div style={S.trackStatus}>
-              <div style={{position:"relative",width:16,height:16}}><div style={{width:16,height:16,borderRadius:"50%",background:"#10B981",animation:"pulse 1.5s ease-in-out infinite"}}/><div style={{position:"absolute",top:0,left:0,width:16,height:16,borderRadius:"50%",background:"#10B981",animation:"ripple 2s ease-out infinite"}}/></div>
-              <span style={{fontSize:15,fontWeight:700,color:"#10B981"}}>운행 추적 중</span>
-            </div>
-            <div style={{marginBottom:32}}>
-              <div style={{fontSize:13,color:"#64748B",fontWeight:600,letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>주행 거리</div>
-              <span style={{fontSize:64,fontWeight:900,color:"#F8FAFC",letterSpacing:-2,fontVariantNumeric:"tabular-nums"}}>{fmtKm(gpsDistance)}</span>
-              <span style={{fontSize:22,color:"#64748B"}}> km</span>
-            </div>
-            <div style={S.tGrid}>
-              <div style={S.tCard}><div style={{fontSize:20,marginBottom:4}}>⏱️</div><div style={S.tVal}>{fmtDur(gpsDuration)}</div><div style={S.tLbl}>주행 시간</div></div>
-              <div style={S.tCard}><div style={{fontSize:20,marginBottom:4}}>🚀</div><div style={S.tVal}>{Math.round(gpsSpeed)}<span style={{fontSize:13,color:"#64748B"}}> km/h</span></div><div style={S.tLbl}>현재 속도</div></div>
-              <div style={S.tCard}><div style={{fontSize:20,marginBottom:4}}>📍</div><div style={S.tVal}>{gpsPoints.length}</div><div style={S.tLbl}>GPS 포인트</div></div>
-              <div style={S.tCard}><div style={{fontSize:20,marginBottom:4}}>🏁</div><div style={S.tVal}>{gpsDuration>0?fmtKm((gpsDistance/gpsDuration)*3600):"0.0"}<span style={{fontSize:13,color:"#64748B"}}> km/h</span></div><div style={S.tLbl}>평균 속도</div></div>
-            </div>
-            {gpsError && <div style={S.gpsErr}>⚠️ {gpsError}</div>}
-            <div style={{display:"flex",justifyContent:"center",marginBottom:16}}><button style={S.stopBtn} onClick={stopTracking}><span style={{fontSize:20}}>⏹</span> 운행 종료</button></div>
-            <p style={{fontSize:12,color:"#475569"}}>💡 화면을 켜둔 상태에서 가장 정확합니다</p>
-          </div>
-        </div>
-      )}
-
-      {/* GPS SAVE */}
-      {view === "gps-save" && editRec && (
-        <div style={S.page}>
-          <header style={S.fHead}><button style={S.backBtn} onClick={()=>{setView("home");setEditRec(null);}}>← 취소</button><h2 style={S.fTitle}>📍 GPS 운행 기록 저장</h2></header>
-          <div style={S.gpsSumCard}><div style={{display:"flex",gap:16}}>
-            <div style={{flex:1,textAlign:"center"}}><span style={{display:"block",fontSize:11,color:"#10B981",fontWeight:600,marginBottom:4}}>GPS 측정거리</span><span style={{display:"block",fontSize:20,fontWeight:800,color:"#F8FAFC"}}>{fmtKm(editRec.gps_distance)} km</span></div>
-            <div style={{flex:1,textAlign:"center"}}><span style={{display:"block",fontSize:11,color:"#10B981",fontWeight:600,marginBottom:4}}>주행 시간</span><span style={{display:"block",fontSize:20,fontWeight:800,color:"#F8FAFC"}}>{fmtDur(editRec.gps_duration)}</span></div>
-          </div></div>
-          <DrivingForm rec={editRec} setRec={setEditRec} />
-          <button style={S.saveBtn} disabled={syncing} onClick={()=>saveDriving(editRec,false)}>{syncing?"저장 중...":"저장하기"}</button>
-        </div>
-      )}
-
-      {/* MANUAL */}
-      {view === "new" && editRec && (
-        <div style={S.page}>
-          <header style={S.fHead}><button style={S.backBtn} onClick={()=>{setView("home");setEditRec(null);}}>← 뒤로</button><h2 style={S.fTitle}>✏️ {editRec.id?"수정":"수동 운행 기록"}</h2></header>
-          <DrivingForm rec={editRec} setRec={setEditRec} />
-          <button style={S.saveBtn} disabled={syncing} onClick={()=>saveDriving(editRec,!!editRec.id)}>{syncing?"저장 중...":"저장하기"}</button>
-        </div>
-      )}
-
-      {/* FUEL */}
-      {view === "fuel" && editRec && (
-        <div style={S.page}>
-          <header style={S.fHead}><button style={S.backBtn} onClick={()=>{setView("home");setEditRec(null);}}>← 뒤로</button><h2 style={S.fTitle}>⛽ {editRec.id?"수정":"주유/충전 기록"}</h2></header>
-          <FuelForm rec={editRec} setRec={setEditRec} />
-          <button style={S.saveBtn} disabled={syncing} onClick={()=>saveFuel(editRec,!!editRec.id)}>{syncing?"저장 중...":"저장하기"}</button>
-        </div>
-      )}
-
-      {/* HISTORY */}
-      {view === "history" && (
-        <div style={S.page}>
-          <header style={S.fHead}><button style={S.backBtn} onClick={()=>setView("home")}>← 뒤로</button><h2 style={S.fTitle}>📋 전체 기록</h2></header>
-          <MonthSel months={allMonths} cur={filterMonth} set={setFilterMonth} />
-          <div style={S.recList}>
-            {monthRecs.length===0?<div style={S.empty}><p style={{color:"#8896A6"}}>이 달에는 기록이 없습니다</p></div>
-            :monthRecs.map(r=><RecordCard key={r.id} r={r} onClick={()=>{setDetailRec(r);setDetailType(r._type);setView("detail");}} />)}
-          </div>
-        </div>
-      )}
-
-      {/* DETAIL */}
-      {view === "detail" && detailRec && (
-        <div style={S.page}>
-          <header style={S.fHead}><button style={S.backBtn} onClick={()=>{setView("history");setDetailRec(null);}}>← 뒤로</button><h2 style={S.fTitle}>{detailType==="driving"?"🛣️ 운행 상세":"⛽ 주유 상세"}</h2></header>
-          <div style={S.dtCard}>
-            <div style={S.dtDate}>{formatDate(detailRec._date)}</div>
-            {detailRec.gps_tracked && <div style={S.gpsTag}>📍 GPS 추적</div>}
-            {detailType==="driving" ? (
-              <>
-                <div style={S.dtSec}>
-                  <DRow l="출발 거리" v={`${fmtNum(detailRec.start_odometer)} km`}/>
-                  <DRow l="도착 거리" v={`${fmtNum(detailRec.end_odometer)} km`}/>
-                  <DRow l="주행 거리" v={`${fmtNum(detailRec.distance)} km`} bold hl/>
-                  {detailRec.gps_distance>0&&<DRow l="GPS 측정" v={`${fmtKm(detailRec.gps_distance)} km`}/>}
-                  {detailRec.gps_duration>0&&<DRow l="주행 시간" v={fmtDur(detailRec.gps_duration)}/>}
-                </div>
-                <div style={S.dtSec}>
-                  <DRow l="경로" v={`${detailRec.origin||"-"} → ${detailRec.destination||"-"}`}/>
-                  <DRow l="목적" v={`${PURPOSE_OPTIONS.find(p=>p.id===detailRec.purpose)?.icon||""} ${PURPOSE_OPTIONS.find(p=>p.id===detailRec.purpose)?.label||""}`}/>
-                  {detailRec.driver_name&&<DRow l="사용자" v={`${detailRec.driver_department||""} ${detailRec.driver_name}`}/>}
-                </div>
-              </>
-            ) : (
-              <div style={S.dtSec}>
-                <DRow l="주행거리" v={`${fmtNum(detailRec.odometer)} km`}/>
-                <DRow l="연료" v={FUEL_TYPE_OPTIONS.find(f=>f.id===detailRec.fuel_type)?.label||""}/>
-                <DRow l="주유량" v={`${fmtNum(detailRec.amount)} L`}/>
-                <DRow l="금액" v={`${fmtNum(detailRec.cost)} 원`} bold/>
-              </div>
-            )}
-            {detailRec.memo && <div style={S.dtMemo}>💬 {detailRec.memo}</div>}
-          </div>
-          <div style={S.dtActs}>
-            <button style={S.editBtn} onClick={()=>{if(detailType==="driving"){setEditRec({...detailRec,_mode:"manual"});setView("new");}else{setEditRec({...detailRec});setView("fuel");}}}>✏️ 수정</button>
-            <button style={S.delBtn} onClick={()=>{if(confirm("정말 삭제하시겠습니까?"))deleteRec(detailRec.id,detailType);}}>🗑️ 삭제</button>
-          </div>
-        </div>
-      )}
-
-      {/* STATS */}
-      {view === "stats" && (
-        <div style={S.page}>
-          <header style={S.fHead}><button style={S.backBtn} onClick={()=>setView("home")}>← 뒤로</button><h2 style={S.fTitle}>📊 월간 통계</h2></header>
-          <MonthSel months={allMonths} cur={filterMonth} set={setFilterMonth} />
-          <div style={S.statsGrid}>
-            <StatBox icon="📏" val={fmtNum(totDist)} unit=" km" label="총 주행거리"/>
-            <StatBox icon="🔢" val={mDriving.length} unit=" 회" label="운행 횟수"/>
-            <StatBox icon="⛽" val={fmtNum(totFuelCost)} unit=" 원" label="주유 비용"/>
-            <StatBox icon="⚡" val={mFuel.length} unit=" 회" label="주유 횟수"/>
-          </div>
-          {totDist>0&&(
-            <div style={S.fCard}>
-              <h3 style={{fontSize:14,fontWeight:700,color:"#CBD5E1",margin:"0 0 12px 0"}}>업무 / 개인 비율</h3>
-              <div style={S.barW}>
-                <div style={{...S.barB,width:`${(bizDist/totDist)*100}%`}}>{bizDist>0&&<span style={S.barLbl}>업무 {Math.round((bizDist/totDist)*100)}%</span>}</div>
-                <div style={{...S.barP,width:`${(persDist/totDist)*100}%`}}>{persDist>0&&<span style={S.barLbl}>개인 {Math.round((persDist/totDist)*100)}%</span>}</div>
-              </div>
-              <div style={S.barLeg}><span>💼 업무 {fmtNum(bizDist)} km</span><span>🏠 개인 {fmtNum(persDist)} km</span></div>
-            </div>
-          )}
-          <button style={{...S.exportBtn,marginTop:16}} onClick={()=>setView("export")}>
-            <span style={{fontSize:18}}>📥</span> 엑셀로 내보내기
+          <button style={T.actCard} onClick={()=>setView("history")}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="1.5"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/></svg>
+            <span style={T.actLabel}>기록 조회</span>
           </button>
         </div>
-      )}
+
+        {/* Recent */}
+        <div style={T.secHdr}><span style={T.secT}>최근 운행</span></div>
+        <div style={T.list}>
+          {all.length===0?<div style={T.empty}>기록이 없습니다</div>
+          :all.slice(0,5).map(r=><RCard key={r.id} r={r} onClick={()=>{setDet(r);setDType(r._t);setView("detail");}}/>)}
+        </div>
+      </div>}
+
+      {/* ══════ TRACKING ══════ */}
+      {view==="tracking"&&<div style={T.pg}>
+        <div style={T.trkPage}>
+          <div style={T.trkDotW}><div style={T.trkDotOuter}/><div style={T.trkDotInner}/></div>
+          <div style={T.trkStatusTxt}>TRACKING</div>
+          <div style={T.trkDistW}>
+            <span style={T.trkDistNum}>{fK(gDist)}</span>
+            <span style={T.trkDistUnit}>km</span>
+          </div>
+          <div style={T.trkGrid}>
+            <div style={T.trkStat}><div style={T.trkStatVal}>{fDu(gDur)}</div><div style={T.trkStatLbl}>TIME</div></div>
+            <div style={T.trkStat}><div style={T.trkStatVal}>{Math.round(gSpd)}<span style={{fontSize:12,color:"#555"}}> km/h</span></div><div style={T.trkStatLbl}>SPEED</div></div>
+            <div style={T.trkStat}><div style={T.trkStatVal}>{gPts.length}</div><div style={T.trkStatLbl}>POINTS</div></div>
+            <div style={T.trkStat}><div style={T.trkStatVal}>{gDur>0?fK((gDist/gDur)*3600):"0"}<span style={{fontSize:12,color:"#555"}}> km/h</span></div><div style={T.trkStatLbl}>AVG</div></div>
+          </div>
+          {gErr&&<div style={T.errBox}>{gErr}</div>}
+          <button style={T.stopBtn} onClick={stopGPS}>
+            <div style={T.stopIcon}/>
+            <span>운행 종료</span>
+          </button>
+        </div>
+      </div>}
+
+      {/* ══════ GPS SAVE ══════ */}
+      {view==="gps-save"&&rec&&<div style={T.pg}>
+        <NavBar title="GPS 운행 저장" onBack={()=>{setView("home");setRec(null);}} />
+        <div style={T.gpsSumBar}>
+          <div style={T.gpsSumItem}><span style={T.gpsSumVal}>{fK(rec.gps_distance)} km</span><span style={T.gpsSumLbl}>GPS 거리</span></div>
+          <div style={T.gpsSumDiv}/>
+          <div style={T.gpsSumItem}><span style={T.gpsSumVal}>{fDu(rec.gps_duration)}</span><span style={T.gpsSumLbl}>주행 시간</span></div>
+        </div>
+        <DForm r={rec} s={setRec}/>
+        <button style={T.mainBtn} disabled={sync} onClick={()=>saveD(rec,false)}>{sync?"저장 중...":"저장"}</button>
+      </div>}
+
+      {/* ══════ MANUAL ══════ */}
+      {view==="new"&&rec&&<div style={T.pg}>
+        <NavBar title={rec.id?"운행 기록 수정":"수동 운행 기록"} onBack={()=>{setView("home");setRec(null);}} />
+        <DForm r={rec} s={setRec}/>
+        <button style={T.mainBtn} disabled={sync} onClick={()=>saveD(rec,!!rec.id)}>{sync?"저장 중...":"저장"}</button>
+      </div>}
+
+      {/* ══════ FUEL ══════ */}
+      {view==="fuel"&&rec&&<div style={T.pg}>
+        <NavBar title={rec.id?"충전 기록 수정":"충전 기록"} onBack={()=>{setView("home");setRec(null);}} />
+        <FForm r={rec} s={setRec}/>
+        <button style={T.mainBtn} disabled={sync} onClick={()=>saveF(rec,!!rec.id)}>{sync?"저장 중...":"저장"}</button>
+      </div>}
+
+      {/* ══════ HISTORY ══════ */}
+      {view==="history"&&<div style={T.pg}>
+        <NavBar title="운행 기록" onBack={()=>setView("home")} />
+        <MSel ms={aM} c={fm} s={setFm}/>
+        <div style={T.list}>{mR.length===0?<div style={T.empty}>기록 없음</div>:mR.map(r=><RCard key={r.id} r={r} onClick={()=>{setDet(r);setDType(r._t);setView("detail");}}/>)}</div>
+      </div>}
+
+      {/* ══════ DETAIL ══════ */}
+      {view==="detail"&&det&&<div style={T.pg}>
+        <NavBar title={dType==="driving"?"운행 상세":"충전 상세"} onBack={()=>{setView("history");setDet(null);}} />
+        <div style={T.dtCard}>
+          <div style={T.dtDate}>{fD(det._d)}</div>
+          {det.gps_tracked&&<div style={T.dtGps}>GPS</div>}
+          {dType==="driving"?<>
+            <DR l="출발" v={`${fN(det.start_odometer)} km`}/><DR l="도착" v={`${fN(det.end_odometer)} km`}/>
+            <div style={T.dtHighlight}><span style={T.dtHlLabel}>주행 거리</span><span style={T.dtHlVal}>{fN(det.distance)} km</span></div>
+            {det.gps_distance>0&&<DR l="GPS 측정" v={`${fK(det.gps_distance)} km`}/>}
+            {det.gps_duration>0&&<DR l="주행 시간" v={fDu(det.gps_duration)}/>}
+            <div style={T.dtDiv}/>
+            <DR l="경로" v={`${det.origin||"-"} → ${det.destination||"-"}`}/>
+            <DR l="목적" v={PURP.find(p=>p.id===det.purpose)?.label||""}/>
+            {det.driver_name&&<DR l="사용자" v={`${det.driver_department||""} ${det.driver_name}`}/>}
+          </>:<>
+            <DR l="주행거리" v={`${fN(det.odometer)} km`}/>
+            <DR l="연료" v={FUEL.find(f=>f.id===det.fuel_type)?.label||""}/>
+            <DR l="충전량" v={`${fN(det.amount)} L`}/>
+            <div style={T.dtHighlight}><span style={T.dtHlLabel}>금액</span><span style={T.dtHlVal}>{fN(det.cost)} 원</span></div>
+          </>}
+          {det.memo&&<div style={T.dtMemo}>{det.memo}</div>}
+        </div>
+        <div style={T.dtActs}>
+          <button style={T.dtEdit} onClick={()=>{if(dType==="driving"){setRec({...det,_m:"manual"});setView("new");}else{setRec({...det});setView("fuel");}}}>수정</button>
+          <button style={T.dtDel} onClick={()=>{if(confirm("삭제하시겠습니까?"))delR(det.id,dType);}}>삭제</button>
+        </div>
+      </div>}
+
+      {/* ══════ STATS ══════ */}
+      {view==="stats"&&<div style={T.pg}>
+        <NavBar title="통계" onBack={()=>setView("home")} />
+        <MSel ms={aM} c={fm} s={setFm}/>
+        <div style={T.statsRow}>
+          <SBox v={fN(tDist)} u="km" l="총 주행거리"/>
+          <SBox v={mD.length} u="회" l="운행 횟수"/>
+        </div>
+        <div style={T.statsRow}>
+          <SBox v={fN(tFuel)} u="원" l="충전 비용"/>
+          <SBox v={mF.length} u="회" l="충전 횟수"/>
+        </div>
+        {tDist>0&&<div style={T.card}>
+          <div style={T.ratioHdr}>업무 사용 비율</div>
+          <div style={T.ratioBar}><div style={{...T.ratioBiz,width:`${(bDist/tDist)*100}%`}}/></div>
+          <div style={T.ratioLeg}>
+            <span><span style={T.rDotR}/> 업무 {fN(bDist)} km ({Math.round((bDist/tDist)*100)}%)</span>
+            <span><span style={T.rDotG}/> 개인 {fN(tDist-bDist)} km</span>
+          </div>
+        </div>}
+        <button style={{...T.mainBtn,marginTop:16,background:"transparent",border:"1px solid #333",color:"#aaa"}} onClick={()=>setView("export")}>엑셀 내보내기</button>
+      </div>}
+
+      {/* ══════ EXPORT ══════ */}
+      {view==="export"&&<div style={T.pg}>
+        <NavBar title="엑셀 내보내기" onBack={()=>setView("home")} />
+        <div style={T.card}>
+          <div style={{textAlign:"center",padding:"20px 0"}}>
+            <div style={{fontSize:40,marginBottom:12}}>📄</div>
+            <div style={{fontSize:16,fontWeight:600,color:"#fff",marginBottom:4}}>운행기록부 내보내기</div>
+            <div style={{fontSize:12,color:"#555"}}>국세청 공식 양식</div>
+          </div>
+          <div style={T.expInfo}><span style={T.expL}>법인명</span><span style={T.expV}>{veh?.company_name||"-"}</span></div>
+          <div style={T.expInfo}><span style={T.expL}>차량</span><span style={T.expV}>{veh?.vehicle_type||""} ({veh?.registration_number||""})</span></div>
+        </div>
+        <div style={T.card}>
+          <div style={{fontSize:11,color:"#555",fontWeight:600,letterSpacing:1,marginBottom:8}}>내보낼 월</div>
+          <MSel ms={aM} c={fm} s={setFm}/>
+          <div style={T.expInfo}><span style={T.expL}>운행 기록</span><span style={T.expV}>{drv.filter(r=>mo(r.drive_date)===fm).length}건</span></div>
+          <div style={T.expInfo}><span style={T.expL}>충전 기록</span><span style={T.expV}>{fue.filter(r=>mo(r.fuel_date)===fm).length}건</span></div>
+        </div>
+        <button style={T.mainBtn} onClick={()=>{try{exportExcel(veh,drv,fue,fm);stToast("다운로드 시작");}catch{stToast("내보내기 실패");}}}>다운로드</button>
+      </div>}
     </div>
   );
 }
 
-// ========= Sub Components =========
-function DrivingForm({rec,setRec}){return(
-  <div style={S.fCard}>
-    <FG label="날짜"><input style={S.inp} type="date" value={rec.drive_date} onChange={e=>setRec({...rec,drive_date:e.target.value})}/></FG>
-    <div style={S.fRow}><FG label="사용자 부서"><input style={S.inp} value={rec.driver_department||""} placeholder="예: 대표이사" onChange={e=>setRec({...rec,driver_department:e.target.value})}/></FG><div style={{width:12}}/><FG label="사용자 성명"><input style={S.inp} value={rec.driver_name||""} placeholder="예: 이동욱" onChange={e=>setRec({...rec,driver_name:e.target.value})}/></FG></div>
-    <div style={S.fRow}><FG label="출발 거리 (km)"><input style={S.inp} type="number" value={rec.start_odometer} onChange={e=>setRec({...rec,start_odometer:Number(e.target.value)})}/></FG><div style={S.fArrow}>→</div><FG label="도착 거리 (km)"><input style={{...S.inp,borderColor:"rgba(59,130,246,.4)"}} type="number" value={rec.end_odometer} placeholder="도착 시" onChange={e=>setRec({...rec,end_odometer:e.target.value?Number(e.target.value):""})}/></FG></div>
-    {rec.end_odometer&&Number(rec.end_odometer)>Number(rec.start_odometer)&&<div style={S.distBadge}>주행거리: {fmtNum(Number(rec.end_odometer)-Number(rec.start_odometer))} km</div>}
-    <div style={S.fRow}><FG label="출발지"><input style={S.inp} value={rec.origin} placeholder="예: 회사" onChange={e=>setRec({...rec,origin:e.target.value})}/></FG><div style={S.fArrow}>→</div><FG label="목적지"><input style={S.inp} value={rec.destination} placeholder="예: 거래처" onChange={e=>setRec({...rec,destination:e.target.value})}/></FG></div>
-    <FG label="운행 목적"><div style={S.purGrid}>{PURPOSE_OPTIONS.map(p=><button key={p.id} style={rec.purpose===p.id?S.purOn:S.purOff} onClick={()=>setRec({...rec,purpose:p.id})}><span>{p.icon}</span> {p.label}</button>)}</div></FG>
-    <FG label="메모"><textarea style={S.ta} value={rec.memo} placeholder="추가 메모 (선택)" rows={2} onChange={e=>setRec({...rec,memo:e.target.value})}/></FG>
-  </div>
-);}
-function FuelForm({rec,setRec}){return(
-  <div style={S.fCard}>
-    <FG label="날짜"><input style={S.inp} type="date" value={rec.fuel_date} onChange={e=>setRec({...rec,fuel_date:e.target.value})}/></FG>
-    <FG label="주행거리 (km)"><input style={S.inp} type="number" value={rec.odometer} onChange={e=>setRec({...rec,odometer:Number(e.target.value)})}/></FG>
-    <FG label="연료 종류"><div style={S.fuelGrid}>{FUEL_TYPE_OPTIONS.map(f=><button key={f.id} style={rec.fuel_type===f.id?S.purOn:S.purOff} onClick={()=>setRec({...rec,fuel_type:f.id})}>{f.label}</button>)}</div></FG>
-    <div style={S.fRow}><FG label="주유량 (L/kWh)"><input style={S.inp} type="number" value={rec.amount} placeholder="0" onChange={e=>setRec({...rec,amount:e.target.value})}/></FG><div style={{width:12}}/><FG label="금액 (원)"><input style={S.inp} type="number" value={rec.cost} placeholder="0" onChange={e=>setRec({...rec,cost:e.target.value})}/></FG></div>
-    {rec.amount&&rec.cost&&Number(rec.amount)>0&&<div style={S.distBadge}>단가: {fmtNum(Math.round(Number(rec.cost)/Number(rec.amount)))} 원/L</div>}
-    <FG label="메모"><textarea style={S.ta} value={rec.memo} placeholder="주유소명 등 (선택)" rows={2} onChange={e=>setRec({...rec,memo:e.target.value})}/></FG>
-  </div>
-);}
-function FG({label,children}){return <div style={S.fg}><label style={S.label}>{label}</label>{children}</div>;}
-function RecordCard({r,onClick}){return(
-  <div style={S.recCard} onClick={onClick}>
-    <div style={S.recL}><div style={{fontSize:22,flexShrink:0}}>{r._type==="driving"?(r.gps_tracked?"📍":"🛣️"):"⛽"}</div>
-      <div><div style={S.recDate}>{formatDate(r._date)}</div>
-        {r._type==="driving"?<div style={S.recRoute}>{r.origin||"출발지"} → {r.destination||"목적지"} <span style={{fontSize:12,color:"#64748B",marginLeft:8}}>{PURPOSE_OPTIONS.find(p=>p.id===r.purpose)?.icon} {PURPOSE_OPTIONS.find(p=>p.id===r.purpose)?.label}</span></div>
-        :<div style={S.recRoute}>{FUEL_TYPE_OPTIONS.find(f=>f.id===r.fuel_type)?.label} {fmtNum(r.amount)}L</div>}
-      </div>
-    </div>
-    <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
-      {r._type==="driving"?<div style={{fontSize:15,fontWeight:700,color:"#3B82F6"}}>{fmtNum(r.distance)} km</div>:<div style={{fontSize:15,fontWeight:700,color:"#F59E0B"}}>{fmtNum(r.cost)} 원</div>}
-      <div style={{fontSize:18,color:"#475569"}}>›</div>
-    </div>
-  </div>
-);}
-function DRow({l,v,bold,hl}){return <div style={{...S.dRow,...(hl?S.dHL:{})}}><span style={S.dLabel}>{l}</span><span style={bold?S.dValB:S.dVal}>{v}</span></div>;}
-function MonthSel({months,cur,set}){return <div style={S.mSel}>{months.map(m=><button key={m} style={cur===m?S.mOn:S.mOff} onClick={()=>set(m)}>{m.replace("-",".")}</button>)}</div>;}
-function StatBox({icon,val,unit,label}){return <div style={S.statCard}><div style={{fontSize:28,marginBottom:6}}>{icon}</div><div style={{fontSize:22,fontWeight:800,color:"#F8FAFC"}}>{val}<span style={{fontSize:13,fontWeight:500,color:"#64748B"}}>{unit}</span></div><div style={{fontSize:12,color:"#94A3B8",marginTop:4}}>{label}</div></div>;}
+/* ═══ Sub Components ═══ */
+function NavBar({title,onBack}){return<header style={T.nav}><button style={T.navBack} onClick={onBack}>
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#E82133" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+</button><span style={T.navTitle}>{title}</span><div style={{width:32}}/></header>;}
 
-const S = {
-  app:{fontFamily:"'Pretendard Variable','Pretendard',-apple-system,BlinkMacSystemFont,'Noto Sans KR',sans-serif",maxWidth:480,margin:"0 auto",minHeight:"100vh",background:"linear-gradient(180deg,#0B1120 0%,#131C2E 50%,#0F172A 100%)",color:"#E2E8F0",position:"relative",paddingBottom:40},
-  loadWrap:{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#0B1120"},
-  spinner:{width:36,height:36,border:"3px solid #1E293B",borderTop:"3px solid #3B82F6",borderRadius:"50%",animation:"spin .8s linear infinite"},
-  toast:{position:"fixed",top:20,left:"50%",transform:"translateX(-50%)",background:"#3B82F6",color:"#fff",padding:"10px 24px",borderRadius:12,fontSize:14,fontWeight:600,zIndex:9999,boxShadow:"0 4px 20px rgba(59,130,246,.4)"},
-  syncBar:{position:"fixed",top:0,left:0,right:0,height:3,background:"linear-gradient(90deg,#3B82F6,#10B981,#3B82F6)",backgroundSize:"200% 100%",animation:"spin 1s linear infinite",zIndex:9998},
-  page:{padding:"0 16px"},
-  header:{paddingTop:20},headerTop:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16},
-  logo:{fontSize:22,fontWeight:800,color:"#F8FAFC",margin:0,letterSpacing:-.5},
-  iconBtn:{background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.08)",borderRadius:10,padding:"8px 12px",fontSize:18,cursor:"pointer"},
-  odoCard:{background:"linear-gradient(135deg,#1E3A5F,#1E293B)",borderRadius:20,padding:24,textAlign:"center",border:"1px solid rgba(59,130,246,.2)",marginBottom:16,boxShadow:"0 8px 32px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.05)"},
-  dbBadge:{display:"inline-block",fontSize:10,color:"#10B981",background:"rgba(16,185,129,.1)",padding:"3px 10px",borderRadius:20,fontWeight:600,marginBottom:8,border:"1px solid rgba(16,185,129,.2)"},
-  odoLabel:{fontSize:11,color:"#64748B",fontWeight:600,textTransform:"uppercase",letterSpacing:1.5},
-  odoNum:{fontSize:40,fontWeight:800,color:"#F8FAFC",letterSpacing:-1,fontVariantNumeric:"tabular-nums"},
-  odoUnit:{fontSize:15,color:"#64748B",fontWeight:500},
-  vehName:{fontSize:13,color:"#94A3B8",marginTop:6,fontWeight:500},compName:{fontSize:11,color:"#64748B",marginTop:2},
-  gpsBtn:{width:"100%",display:"flex",alignItems:"center",gap:14,background:"linear-gradient(135deg,#059669,#047857)",border:"none",borderRadius:16,padding:"16px 18px",cursor:"pointer",marginBottom:12,boxShadow:"0 4px 20px rgba(5,150,105,.35)",color:"#fff",textAlign:"left"},
-  gpsBtnInner:{position:"relative",width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center"},
-  gpsPulse:{position:"absolute",width:44,height:44,borderRadius:"50%",border:"2px solid rgba(255,255,255,.3)",animation:"ripple 2s ease-out infinite"},
-  gpsBtnLabel:{fontSize:16,fontWeight:700,display:"block"},gpsBtnSub:{fontSize:12,color:"rgba(255,255,255,.6)",display:"block",marginTop:2},
-  quickActs:{display:"flex",gap:10,marginBottom:24},
-  actBtn:{flex:1,background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",borderRadius:16,padding:"16px 14px",cursor:"pointer",textAlign:"left",color:"#E2E8F0"},
-  actIcon:{fontSize:22,display:"block",marginBottom:6},actLabel:{fontSize:14,fontWeight:700,display:"block"},actSub:{fontSize:11,color:"rgba(255,255,255,.4)",display:"block",marginTop:2},
-  secHead:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12},
-  secTitle:{fontSize:16,fontWeight:700,color:"#CBD5E1",margin:0},linkBtn:{background:"none",border:"none",color:"#3B82F6",fontSize:13,fontWeight:600,cursor:"pointer"},
-  recList:{display:"flex",flexDirection:"column",gap:8},
-  recCard:{display:"flex",justifyContent:"space-between",alignItems:"center",background:"rgba(255,255,255,.04)",borderRadius:14,padding:"14px 16px",border:"1px solid rgba(255,255,255,.06)",cursor:"pointer"},
-  recL:{display:"flex",alignItems:"center",gap:12,flex:1,minWidth:0},recDate:{fontSize:13,color:"#94A3B8",fontWeight:500},
-  recRoute:{fontSize:14,fontWeight:600,color:"#E2E8F0",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"},
-  empty:{textAlign:"center",padding:"36px 0"},
-  trackPage:{paddingTop:40,textAlign:"center"},trackStatus:{display:"flex",alignItems:"center",justifyContent:"center",gap:10,marginBottom:32},
-  tGrid:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:28},
-  tCard:{background:"rgba(255,255,255,.04)",borderRadius:14,padding:"14px 10px",border:"1px solid rgba(255,255,255,.06)"},
-  tVal:{fontSize:18,fontWeight:800,color:"#F8FAFC"},tLbl:{fontSize:11,color:"#94A3B8",marginTop:2},
-  gpsErr:{background:"rgba(239,68,68,.15)",border:"1px solid rgba(239,68,68,.3)",borderRadius:12,padding:"12px 16px",color:"#F87171",fontSize:13,fontWeight:600,marginBottom:16},
-  stopBtn:{display:"flex",alignItems:"center",gap:10,background:"linear-gradient(135deg,#EF4444,#DC2626)",border:"none",borderRadius:16,padding:"16px 40px",color:"#fff",fontSize:17,fontWeight:700,cursor:"pointer",boxShadow:"0 4px 20px rgba(239,68,68,.35)"},
-  gpsSumCard:{background:"linear-gradient(135deg,rgba(16,185,129,.15),rgba(5,150,105,.1))",border:"1px solid rgba(16,185,129,.25)",borderRadius:16,padding:18,marginBottom:16},
-  fHead:{paddingTop:20,marginBottom:16},backBtn:{background:"none",border:"none",color:"#3B82F6",fontSize:14,fontWeight:600,cursor:"pointer",padding:0,marginBottom:8,display:"block"},
-  fTitle:{fontSize:20,fontWeight:800,color:"#F8FAFC",margin:0},
-  fCard:{background:"rgba(255,255,255,.04)",borderRadius:18,padding:20,border:"1px solid rgba(255,255,255,.06)",marginBottom:16},
-  fg:{marginBottom:16,flex:1},fRow:{display:"flex",alignItems:"flex-end",gap:0},fArrow:{color:"#475569",fontSize:18,padding:"0 6px",paddingBottom:12},
-  label:{display:"block",fontSize:11,fontWeight:600,color:"#94A3B8",marginBottom:6,textTransform:"uppercase",letterSpacing:.5},
-  inp:{width:"100%",padding:"12px 14px",background:"rgba(0,0,0,.3)",border:"1px solid rgba(255,255,255,.1)",borderRadius:10,color:"#F8FAFC",fontSize:15,outline:"none",boxSizing:"border-box"},
-  ta:{width:"100%",padding:"12px 14px",background:"rgba(0,0,0,.3)",border:"1px solid rgba(255,255,255,.1)",borderRadius:10,color:"#F8FAFC",fontSize:15,outline:"none",boxSizing:"border-box",resize:"vertical",fontFamily:"inherit"},
-  distBadge:{background:"rgba(59,130,246,.15)",color:"#60A5FA",padding:"8px 14px",borderRadius:10,fontSize:14,fontWeight:700,textAlign:"center",marginBottom:16,border:"1px solid rgba(59,130,246,.2)"},
-  purGrid:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8},fuelGrid:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8},
-  purOff:{background:"rgba(0,0,0,.3)",border:"1px solid rgba(255,255,255,.1)",borderRadius:10,padding:"10px 8px",color:"#94A3B8",fontSize:13,fontWeight:600,cursor:"pointer",textAlign:"center"},
-  purOn:{background:"rgba(59,130,246,.2)",border:"1px solid rgba(59,130,246,.5)",borderRadius:10,padding:"10px 8px",color:"#60A5FA",fontSize:13,fontWeight:700,cursor:"pointer",textAlign:"center"},
-  saveBtn:{width:"100%",padding:"16px",background:"linear-gradient(135deg,#3B82F6,#2563EB)",border:"none",borderRadius:14,color:"#fff",fontSize:16,fontWeight:700,cursor:"pointer",boxShadow:"0 4px 16px rgba(59,130,246,.3)"},
-  dtCard:{background:"rgba(255,255,255,.04)",borderRadius:18,padding:20,border:"1px solid rgba(255,255,255,.06)"},
-  dtDate:{fontSize:16,fontWeight:700,color:"#CBD5E1",marginBottom:8,textAlign:"center"},
-  gpsTag:{textAlign:"center",fontSize:12,color:"#10B981",fontWeight:600,marginBottom:12,background:"rgba(16,185,129,.1)",padding:"4px 12px",borderRadius:8,display:"block",width:"fit-content",margin:"0 auto 12px auto"},
-  dtSec:{marginBottom:16,paddingBottom:16,borderBottom:"1px solid rgba(255,255,255,.06)"},
-  dRow:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0"},
-  dHL:{background:"rgba(59,130,246,.1)",marginLeft:-12,marginRight:-12,paddingLeft:12,paddingRight:12,borderRadius:8},
-  dLabel:{fontSize:14,color:"#94A3B8"},dVal:{fontSize:14,color:"#E2E8F0",fontWeight:500},dValB:{fontSize:16,color:"#3B82F6",fontWeight:700},
-  dtMemo:{background:"rgba(255,255,255,.03)",padding:"12px 14px",borderRadius:10,fontSize:13,color:"#94A3B8",marginTop:8},
+function DForm({r,s}){return<div style={T.card}>
+  <FG l="날짜"><input style={T.inp} type="date" value={r.drive_date} onChange={e=>s({...r,drive_date:e.target.value})}/></FG>
+  <div style={T.row2}><FG l="부서"><input style={T.inp} value={r.driver_department||""} placeholder="대표이사" onChange={e=>s({...r,driver_department:e.target.value})}/></FG><FG l="성명"><input style={T.inp} value={r.driver_name||""} placeholder="이동욱" onChange={e=>s({...r,driver_name:e.target.value})}/></FG></div>
+  <div style={T.row2}>
+    <FG l="출발 거리 (km)"><input style={T.inp} type="number" value={r.start_odometer} onChange={e=>s({...r,start_odometer:+e.target.value})}/></FG>
+    <FG l="도착 거리 (km)"><input style={{...T.inp,color:"#E82133"}} type="number" value={r.end_odometer} placeholder="도착 시" onChange={e=>s({...r,end_odometer:e.target.value?+e.target.value:""})}/></FG>
+  </div>
+  {r.end_odometer&&+r.end_odometer>+r.start_odometer&&<div style={T.distTag}>{fN(+r.end_odometer-+r.start_odometer)} km</div>}
+  <div style={T.row2}><FG l="출발지"><input style={T.inp} value={r.origin} placeholder="회사" onChange={e=>s({...r,origin:e.target.value})}/></FG><FG l="목적지"><input style={T.inp} value={r.destination} placeholder="거래처" onChange={e=>s({...r,destination:e.target.value})}/></FG></div>
+  <FG l="운행 목적"><div style={T.chipRow}>{PURP.map(p=><button key={p.id} style={r.purpose===p.id?T.chipOn:T.chipOff} onClick={()=>s({...r,purpose:p.id})}>{p.label}</button>)}</div></FG>
+  <FG l="메모"><textarea style={T.ta} value={r.memo} placeholder="메모" rows={2} onChange={e=>s({...r,memo:e.target.value})}/></FG>
+</div>;}
+
+function FForm({r,s}){return<div style={T.card}>
+  <FG l="날짜"><input style={T.inp} type="date" value={r.fuel_date} onChange={e=>s({...r,fuel_date:e.target.value})}/></FG>
+  <FG l="주행거리 (km)"><input style={T.inp} type="number" value={r.odometer} onChange={e=>s({...r,odometer:+e.target.value})}/></FG>
+  <FG l="연료 종류"><div style={T.chipRow}>{FUEL.map(f=><button key={f.id} style={r.fuel_type===f.id?T.chipOn:T.chipOff} onClick={()=>s({...r,fuel_type:f.id})}>{f.label}</button>)}</div></FG>
+  <div style={T.row2}><FG l="충전량 (L/kWh)"><input style={T.inp} type="number" value={r.amount} placeholder="0" onChange={e=>s({...r,amount:e.target.value})}/></FG><FG l="금액 (원)"><input style={T.inp} type="number" value={r.cost} placeholder="0" onChange={e=>s({...r,cost:e.target.value})}/></FG></div>
+  {r.amount&&r.cost&&+r.amount>0&&<div style={T.distTag}>{fN(Math.round(+r.cost/+r.amount))} 원/L</div>}
+  <FG l="메모"><textarea style={T.ta} value={r.memo} placeholder="충전소명" rows={2} onChange={e=>s({...r,memo:e.target.value})}/></FG>
+</div>;}
+
+function FG({l,children}){return<div style={T.fg}><label style={T.fgLabel}>{l}</label>{children}</div>;}
+function RCard({r,onClick}){return<div style={T.rCard} onClick={onClick}>
+  <div style={T.rLeft}><div style={T.rIcon}>{r._t==="driving"?(r.gps_tracked?"◉":"→"):"⚡"}</div>
+    <div><div style={T.rDate}>{fD(r._d)}</div>
+      {r._t==="driving"?<div style={T.rRoute}>{r.origin||"출발"} → {r.destination||"도착"}</div>
+      :<div style={T.rRoute}>{FUEL.find(f=>f.id===r.fuel_type)?.label||""} {fN(r.amount)}L</div>}
+    </div>
+  </div>
+  <div style={T.rRight}>{r._t==="driving"?<span style={T.rDist}>{fN(r.distance)} km</span>:<span style={T.rCost}>{fN(r.cost)}원</span>}</div>
+</div>;}
+function DR({l,v}){return<div style={T.drRow}><span style={T.drL}>{l}</span><span style={T.drV}>{v}</span></div>;}
+function MSel({ms,c,s}){return<div style={T.mSel}>{ms.map(m=><button key={m} style={c===m?T.mOn:T.mOff} onClick={()=>s(m)}>{m.replace("-",".")}</button>)}</div>;}
+function SBox({v,u,l}){return<div style={T.sBox}><div style={T.sVal}>{v}<span style={T.sUnit}>{u}</span></div><div style={T.sLbl}>{l}</div></div>;}
+
+/* ═══ Tesla-inspired Styles ═══ */
+const T = {
+  app:{fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Display','Pretendard',sans-serif",maxWidth:480,margin:"0 auto",minHeight:"100vh",background:"#000",color:"#fff",position:"relative",paddingBottom:40},
+  loadW:{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#000"},
+  ldRing:{width:40,height:40,border:"2px solid #222",borderTop:"2px solid #E82133",borderRadius:"50%",animation:"tspin .8s linear infinite"},
+  toast:{position:"fixed",top:24,left:"50%",transform:"translateX(-50%)",background:"#E82133",color:"#fff",padding:"10px 28px",borderRadius:100,fontSize:13,fontWeight:500,zIndex:9999,letterSpacing:.3},
+  syncLine:{position:"fixed",top:0,left:0,right:0,height:2,background:"#E82133",zIndex:9998},
+  pg:{padding:"0 20px"},
+
+  // Header
+  hdr:{paddingTop:20,marginBottom:4},
+  hdrRow:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"},
+  teslaLogo:{fontSize:11,fontWeight:600,color:"#E82133",letterSpacing:4,marginBottom:2},
+  hdrSub:{fontSize:12,color:"#555",fontWeight:400},
+  hdrBtn:{background:"none",border:"1px solid #222",borderRadius:8,padding:"6px 10px",color:"#666",fontSize:14,cursor:"pointer",lineHeight:1},
+
+  // Hero
+  hero:{paddingTop:8,paddingBottom:8},
+  compBadge:{textAlign:"center",fontSize:10,color:"#444",fontWeight:500,letterSpacing:1,marginTop:4},
+
+  // GPS Start
+  gpsStart:{width:"100%",display:"flex",alignItems:"center",gap:14,background:"#000",border:"1px solid #222",borderRadius:14,padding:"16px 18px",cursor:"pointer",marginBottom:16,color:"#fff",textAlign:"left"},
+  gpsRing:{width:40,height:40,borderRadius:"50%",border:"2px solid #E82133",display:"flex",alignItems:"center",justifyContent:"center",animation:"tripple 2s infinite"},
+  gpsDot:{width:12,height:12,borderRadius:"50%",background:"#E82133"},
+  gpsLabel:{fontSize:15,fontWeight:600,letterSpacing:.5},
+  gpsSub:{fontSize:11,color:"#555",marginTop:2},
+
+  // Actions
+  actRow:{display:"flex",gap:10,marginBottom:24},
+  actCard:{flex:1,background:"#0a0a0a",border:"1px solid #1a1a1a",borderRadius:14,padding:"18px 12px",cursor:"pointer",textAlign:"center",color:"#888",display:"flex",flexDirection:"column",alignItems:"center",gap:8},
+  actLabel:{fontSize:12,fontWeight:500},
+
+  // Section
+  secHdr:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10},
+  secT:{fontSize:13,fontWeight:600,color:"#555",letterSpacing:1,textTransform:"uppercase"},
+
+  // List / Records
+  list:{display:"flex",flexDirection:"column",gap:1},
+  rCard:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:"1px solid #111",cursor:"pointer"},
+  rLeft:{display:"flex",alignItems:"center",gap:12,flex:1,minWidth:0},
+  rIcon:{width:32,height:32,borderRadius:8,background:"#111",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,color:"#E82133",fontWeight:700,flexShrink:0},
+  rDate:{fontSize:12,color:"#555"},
+  rRoute:{fontSize:14,fontWeight:500,color:"#ccc",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"},
+  rRight:{flexShrink:0,textAlign:"right"},
+  rDist:{fontSize:15,fontWeight:600,color:"#fff"},
+  rCost:{fontSize:15,fontWeight:600,color:"#E82133"},
+  empty:{textAlign:"center",padding:40,color:"#333",fontSize:13},
+
+  // Tracking
+  trkPage:{paddingTop:60,textAlign:"center"},
+  trkDotW:{width:60,height:60,margin:"0 auto 24px",position:"relative",display:"flex",alignItems:"center",justifyContent:"center"},
+  trkDotOuter:{position:"absolute",width:60,height:60,borderRadius:"50%",border:"2px solid #E82133",animation:"tripple 2s infinite"},
+  trkDotInner:{width:20,height:20,borderRadius:"50%",background:"#E82133",animation:"tpulse 1.5s ease-in-out infinite"},
+  trkStatusTxt:{fontSize:11,color:"#E82133",fontWeight:600,letterSpacing:4,marginBottom:32},
+  trkDistW:{marginBottom:40},
+  trkDistNum:{fontSize:72,fontWeight:200,color:"#fff",letterSpacing:-2,fontVariantNumeric:"tabular-nums"},
+  trkDistUnit:{fontSize:20,color:"#555",fontWeight:300,marginLeft:4},
+  trkGrid:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:1,marginBottom:40,background:"#111",borderRadius:12,overflow:"hidden"},
+  trkStat:{background:"#0a0a0a",padding:"16px 12px",textAlign:"center"},
+  trkStatVal:{fontSize:18,fontWeight:500,color:"#fff"},
+  trkStatLbl:{fontSize:10,color:"#444",fontWeight:600,letterSpacing:2,marginTop:4},
+  errBox:{background:"#1a0000",border:"1px solid #330000",borderRadius:10,padding:"10px 14px",color:"#E82133",fontSize:12,marginBottom:16},
+  stopBtn:{display:"flex",alignItems:"center",justifyContent:"center",gap:12,width:"100%",background:"#0a0a0a",border:"1px solid #E82133",borderRadius:14,padding:16,color:"#E82133",fontSize:16,fontWeight:600,cursor:"pointer"},
+  stopIcon:{width:16,height:16,borderRadius:3,background:"#E82133"},
+
+  // GPS Save Summary
+  gpsSumBar:{display:"flex",alignItems:"center",background:"#0a0a0a",border:"1px solid #1a1a1a",borderRadius:12,padding:"14px 0",marginBottom:16},
+  gpsSumItem:{flex:1,textAlign:"center"},
+  gpsSumVal:{display:"block",fontSize:18,fontWeight:600,color:"#fff"},
+  gpsSumLbl:{display:"block",fontSize:10,color:"#444",letterSpacing:1,marginTop:2},
+  gpsSumDiv:{width:1,height:30,background:"#222"},
+
+  // Nav
+  nav:{display:"flex",alignItems:"center",justifyContent:"space-between",paddingTop:20,marginBottom:16},
+  navBack:{background:"none",border:"none",cursor:"pointer",padding:4},
+  navTitle:{fontSize:16,fontWeight:600,color:"#fff",letterSpacing:.3},
+
+  // Form
+  card:{background:"#0a0a0a",border:"1px solid #1a1a1a",borderRadius:14,padding:20,marginBottom:16},
+  fg:{marginBottom:16,flex:1},
+  fgLabel:{display:"block",fontSize:10,fontWeight:600,color:"#444",marginBottom:6,letterSpacing:1,textTransform:"uppercase"},
+  inp:{width:"100%",padding:"12px 14px",background:"#111",border:"1px solid #222",borderRadius:10,color:"#fff",fontSize:15,boxSizing:"border-box",fontWeight:400},
+  ta:{width:"100%",padding:"12px 14px",background:"#111",border:"1px solid #222",borderRadius:10,color:"#fff",fontSize:15,boxSizing:"border-box",resize:"none",fontFamily:"inherit"},
+  row2:{display:"flex",gap:10},
+  fArrow:{color:"#333",fontSize:18,padding:"0 4px",paddingBottom:12},
+  distTag:{background:"#1a0a0a",border:"1px solid #2a1111",borderRadius:10,padding:"8px 14px",textAlign:"center",color:"#E82133",fontSize:15,fontWeight:600,marginBottom:16},
+  chipRow:{display:"flex",gap:6,flexWrap:"wrap"},
+  chipOff:{background:"#111",border:"1px solid #222",borderRadius:20,padding:"8px 16px",color:"#555",fontSize:13,fontWeight:500,cursor:"pointer"},
+  chipOn:{background:"rgba(232,33,51,.1)",border:"1px solid rgba(232,33,51,.4)",borderRadius:20,padding:"8px 16px",color:"#E82133",fontSize:13,fontWeight:600,cursor:"pointer"},
+  mainBtn:{width:"100%",padding:16,background:"#E82133",border:"none",borderRadius:12,color:"#fff",fontSize:15,fontWeight:600,cursor:"pointer",letterSpacing:.5},
+
+  // Detail
+  dtCard:{background:"#0a0a0a",border:"1px solid #1a1a1a",borderRadius:14,padding:20},
+  dtDate:{fontSize:14,fontWeight:500,color:"#888",marginBottom:12,textAlign:"center"},
+  dtGps:{textAlign:"center",fontSize:10,color:"#E82133",fontWeight:600,letterSpacing:2,marginBottom:12},
+  dtHighlight:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 14px",background:"#111",borderRadius:10,marginTop:8,marginBottom:8},
+  dtHlLabel:{fontSize:13,color:"#888"},
+  dtHlVal:{fontSize:18,fontWeight:600,color:"#fff"},
+  dtDiv:{height:1,background:"#1a1a1a",margin:"12px 0"},
+  dtMemo:{marginTop:12,padding:"10px 14px",background:"#111",borderRadius:8,fontSize:12,color:"#555"},
   dtActs:{display:"flex",gap:10,marginTop:16},
-  editBtn:{flex:1,padding:"12px",background:"rgba(59,130,246,.15)",border:"1px solid rgba(59,130,246,.3)",borderRadius:12,color:"#60A5FA",fontSize:14,fontWeight:600,cursor:"pointer"},
-  delBtn:{flex:1,padding:"12px",background:"rgba(239,68,68,.1)",border:"1px solid rgba(239,68,68,.2)",borderRadius:12,color:"#F87171",fontSize:14,fontWeight:600,cursor:"pointer"},
+  dtEdit:{flex:1,padding:14,background:"#111",border:"1px solid #222",borderRadius:12,color:"#fff",fontSize:14,fontWeight:500,cursor:"pointer",textAlign:"center"},
+  dtDel:{flex:1,padding:14,background:"#0a0a0a",border:"1px solid #2a1111",borderRadius:12,color:"#E82133",fontSize:14,fontWeight:500,cursor:"pointer",textAlign:"center"},
+  drRow:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0"},
+  drL:{fontSize:13,color:"#555"},
+  drV:{fontSize:14,color:"#ccc",fontWeight:500},
+
+  // Month Selector
   mSel:{display:"flex",gap:6,overflowX:"auto",marginBottom:16,paddingBottom:4},
-  mOff:{background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.06)",borderRadius:10,padding:"8px 14px",color:"#94A3B8",fontSize:13,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0},
-  mOn:{background:"rgba(59,130,246,.2)",border:"1px solid rgba(59,130,246,.5)",borderRadius:10,padding:"8px 14px",color:"#60A5FA",fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0},
-  statsGrid:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16},
-  statCard:{background:"rgba(255,255,255,.04)",borderRadius:16,padding:"18px 16px",border:"1px solid rgba(255,255,255,.06)",textAlign:"center"},
-  barW:{display:"flex",height:32,borderRadius:8,overflow:"hidden"},
-  barB:{background:"#3B82F6",display:"flex",alignItems:"center",justifyContent:"center",transition:"width .5s"},
-  barP:{background:"#F59E0B",display:"flex",alignItems:"center",justifyContent:"center",transition:"width .5s"},
-  barLbl:{fontSize:11,fontWeight:700,color:"#fff"},barLeg:{display:"flex",justifyContent:"space-between",marginTop:8,fontSize:12,color:"#94A3B8"},
-  // Export styles
-  exportCard:{background:"linear-gradient(135deg,rgba(99,102,241,.12),rgba(59,130,246,.08))",borderRadius:20,padding:28,textAlign:"center",border:"1px solid rgba(99,102,241,.2)",marginBottom:16},
-  exportIcon:{fontSize:48,marginBottom:12},
-  exportTitle:{fontSize:18,fontWeight:800,color:"#F8FAFC",margin:"0 0 8px 0"},
-  exportDesc:{fontSize:13,color:"#94A3B8",margin:0},
-  exportInfo:{marginTop:16,textAlign:"left"},
-  exportInfoRow:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,.05)"},
-  exportInfoLabel:{fontSize:12,color:"#64748B",fontWeight:600},exportInfoVal:{fontSize:13,color:"#E2E8F0",fontWeight:500},
-  exportPreview:{marginTop:8,background:"rgba(0,0,0,.2)",borderRadius:12,padding:14},
-  exportPreviewRow:{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,.04)"},
-  exportPreviewIcon:{fontSize:18},exportPreviewLabel:{flex:1,fontSize:13,color:"#94A3B8"},exportPreviewVal:{fontSize:14,fontWeight:700,color:"#F8FAFC"},
-  exportBtn:{width:"100%",padding:"16px",background:"linear-gradient(135deg,#6366F1,#4F46E5)",border:"none",borderRadius:14,color:"#fff",fontSize:16,fontWeight:700,cursor:"pointer",boxShadow:"0 4px 16px rgba(99,102,241,.3)",display:"flex",alignItems:"center",justifyContent:"center",gap:10},
-  exportNote:{fontSize:11,color:"#64748B",textAlign:"center",marginTop:12,lineHeight:1.6},
+  mOff:{background:"#0a0a0a",border:"1px solid #1a1a1a",borderRadius:8,padding:"7px 14px",color:"#444",fontSize:12,fontWeight:500,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0},
+  mOn:{background:"rgba(232,33,51,.1)",border:"1px solid rgba(232,33,51,.3)",borderRadius:8,padding:"7px 14px",color:"#E82133",fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0},
+
+  // Stats
+  statsRow:{display:"flex",gap:10,marginBottom:10},
+  sBox:{flex:1,background:"#0a0a0a",border:"1px solid #1a1a1a",borderRadius:14,padding:"20px 16px",textAlign:"center"},
+  sVal:{fontSize:22,fontWeight:600,color:"#fff"},
+  sUnit:{fontSize:12,fontWeight:400,color:"#444",marginLeft:2},
+  sLbl:{fontSize:10,color:"#444",marginTop:6,letterSpacing:1,fontWeight:500},
+  ratioHdr:{fontSize:12,color:"#555",fontWeight:600,marginBottom:10,letterSpacing:.5},
+  ratioBar:{height:6,borderRadius:3,background:"#1a1a1a",overflow:"hidden"},
+  ratioBiz:{height:6,background:"#E82133",borderRadius:3,transition:"width .5s"},
+  ratioLeg:{display:"flex",justifyContent:"space-between",marginTop:8,fontSize:11,color:"#555"},
+  rDotR:{display:"inline-block",width:6,height:6,borderRadius:3,background:"#E82133",marginRight:4,verticalAlign:"middle"},
+  rDotG:{display:"inline-block",width:6,height:6,borderRadius:3,background:"#333",marginRight:4,verticalAlign:"middle"},
+
+  // Export
+  expInfo:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"1px solid #111"},
+  expL:{fontSize:12,color:"#555"},
+  expV:{fontSize:13,color:"#ccc",fontWeight:500},
 };
